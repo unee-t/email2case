@@ -1,0 +1,75 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/tidwall/gjson"
+
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/jhillyerd/enmime"
+)
+
+func main() {
+	lambda.Start(handler)
+}
+
+func handler(ctx context.Context, event events.SNSEvent) {
+
+	fmt.Fprintln(os.Stderr, event.Records[0].SNS.Message)
+
+	messageId := gjson.Get(event.Records[0].SNS.Message, "mail.messageId").String()
+	// subject := gjson.Get(event.Records[0].SNS.Message, "mail.commonHeaders.subject").String()
+	// returnPath := gjson.Get(event.Records[0].SNS.Message, "mail.commonHeaders.returnPath").String()
+	fmt.Fprintln(os.Stderr, messageId)
+
+	sess := session.Must(session.NewSession())
+	s3svc := s3.New(sess)
+
+	// https://docs.aws.amazon.com/sdk-for-go/api/service/s3/#example_S3_GetObject
+	getparams := &s3.GetObjectInput{
+		Bucket: aws.String("dev-email-unee-t"), // Required
+		Key:    aws.String(messageId),          // Required
+	}
+
+	getresp, err := s3svc.GetObject(getparams)
+
+	if err != nil {
+		panic(err)
+	}
+
+	env, err := enmime.ReadEnvelope(getresp.Body)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprintf(os.Stderr, "From: %v\n", env.GetHeader("From"))
+
+	// Pretty-print the response data.
+	fmt.Fprintln(os.Stderr, getresp)
+	// b, _ := ioutil.ReadAll(getresp.Body)
+
+	// https://docs.aws.amazon.com/sdk-for-go/api/service/s3/#PutObjectInput
+	// https://docs.aws.amazon.com/sdk-for-go/api/service/s3/#example_S3_PutObject
+	putparams := &s3.PutObjectInput{
+		Bucket:       aws.String("dev-email-unee-t"),    // Required
+		Body:         bytes.NewReader([]byte(env.Text)), // Required
+		Key:          aws.String("txt/" + messageId),    // Required
+		ContentType:  aws.String("text/plain; charset=UTF-8"),
+		ACL:          aws.String("public-read"),
+		StorageClass: aws.String("REDUCED_REDUNDANCY"),
+	}
+
+	putresp, err := s3svc.PutObject(putparams)
+
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprintln(os.Stderr, "Managed to upload", putresp)
+
+}
