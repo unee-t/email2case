@@ -4,39 +4,49 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
+	"github.com/apex/log"
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/external"
+	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 )
 
-var invokeCount = 0
-var myObjects []*s3.Object
-
-func init() {
-	svc := s3.New(session.New(), aws.NewConfig().WithRegion("us-east-1"))
-	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String("dev-email-unee-t"),
-	}
-	result, err := svc.ListObjectsV2(input)
+func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
+	var email events.SimpleEmailService
+	err = json.Unmarshal([]byte(payload.Records[0].SNS.Message), &email)
 	if err != nil {
-		panic(err)
+		log.WithError(err).Fatal("bad JSON")
+		return
 	}
-	myObjects = result.Contents
-}
+	log.Infof("%+v", email)
 
-func LambdaHandler(ctx context.Context, payload json.RawMessage) {
-	fmt.Println("here")
-	log.Println(payload)
-
-	json, err := json.MarshalIndent(payload, "", "\t")
+	cfg, err := external.LoadDefaultAWSConfig()
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 
-	fmt.Println(string(json))
+	stssvc := sts.New(cfg)
+	input := &sts.GetCallerIdentityInput{}
+
+	req := stssvc.GetCallerIdentityRequest(input)
+	result, err := req.Send()
+	if err != nil {
+		return
+	}
+
+	snssvc := sns.New(cfg)
+	snsreq := snssvc.PublishRequest(&sns.PublishInput{
+		Message:  aws.String(fmt.Sprintf("%s", email.Mail.CommonHeaders.Subject)),
+		TopicArn: aws.String(fmt.Sprintf("arn:aws:sns:us-west-2:%s:incomingreply", aws.StringValue(result.Account))),
+	})
+
+	_, err = snsreq.Send()
+
+	return
+
 }
 
 func main() {
