@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"net/mail"
 	"os"
 	"strings"
@@ -23,7 +25,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/external"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jhillyerd/enmime"
 	"github.com/unee-t/env"
@@ -49,23 +50,19 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 		log.WithError(err).Fatal("could not inbox")
 	}
 
-	parts["validReply"] = fmt.Sprintf("%t", h.validReply(email.Mail.Destination[0]))
+	log.Infof("Parts: %+v, TopicArn: %s", parts, h.Env.SNS("incomingreply", "us-west-2"))
 
-	stssvc := sts.New(h.Env.Cfg)
-	input := &sts.GetCallerIdentityInput{}
-
-	req := stssvc.GetCallerIdentityRequest(input)
-	result, err := req.Send()
+	cfg, err := external.LoadDefaultAWSConfig(external.WithSharedConfigProfile("uneet-dev"))
 	if err != nil {
-		log.WithError(err).Fatal("unable to get STS")
+		log.WithError(err).Fatal("setting up credentials")
 		return
 	}
+	cfg.Region = endpoints.UsWest2RegionID
 
-	log.Infof("Parts: %+v", parts)
-	snssvc := sns.New(h.Env.Cfg)
+	snssvc := sns.New(cfg)
 	snsreq := snssvc.PublishRequest(&sns.PublishInput{
 		Message:  aws.String(fmt.Sprintf("%s", summarise(email, parts))),
-		TopicArn: aws.String(fmt.Sprintf("arn:aws:sns:us-west-2:%s:incomingreply", aws.StringValue(result.Account))),
+		TopicArn: aws.String(h.Env.SNS("incomingreply", endpoints.UsWest2RegionID)),
 	})
 
 	_, err = snsreq.Send()
@@ -120,6 +117,8 @@ func New() (h handler, err error) {
 }
 
 func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string, err error) {
+	parts = make(map[string]string)
+	parts["validReply"] = h.validReply(email.Mail.Destination[0])
 
 	svc := s3.New(h.Env.Cfg)
 
@@ -155,12 +154,17 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 		return
 	}
 
-	textPart := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/text"
+	textPartKey := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/text"
+
+	err = h.comment(email.Mail.CommonHeaders.From[0], parts["validReply"], envelope.Text)
+	if err != nil {
+		log.WithError(err).Warn("unable to comment")
+	}
 
 	putparams := &s3.PutObjectInput{
 		Bucket:      aws.String("dev-email-unee-t"),
 		Body:        bytes.NewReader([]byte(envelope.Text)),
-		Key:         aws.String(textPart),
+		Key:         aws.String(textPartKey),
 		ContentType: aws.String("text/plain; charset=UTF-8"),
 		ACL:         s3.ObjectCannedACLPublicRead,
 	}
@@ -191,10 +195,10 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 
 	log.Infof("%+v", envelope)
 
-	parts = make(map[string]string)
 	parts["orig"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/incoming/%s", email.Mail.MessageID)
-	parts["text"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/%s", textPart)
+	parts["text"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/%s", textPartKey)
 	parts["html"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/%s", htmlPart)
+	parts["bugURL"] = fmt.Sprintf("https://%s/case/%s", h.Env.Udomain("case"), parts["validReply"])
 
 	return
 }
@@ -231,41 +235,95 @@ MessageID: {{.Mail.MessageID}}
 	return output.String()
 }
 
-func (h handler) validReply(toAddress string) bool {
+func (h handler) comment(from, bugID, comment string) (err error) {
+	log.Infof("From: %s, BugID: %s, Comment: %s", from, bugID, comment)
+
+	if bugID == "" {
+		return fmt.Errorf("Not a valid reply address")
+	}
+
+	url := fmt.Sprintf("https://%s/rest/bug/%s/comment", h.Env.Udomain("dashboard"), bugID)
+
+	e, err := mail.ParseAddress(from)
+	if err != nil {
+		return err
+	}
+
+	userID, err := h.lookupID(e.Address)
+	if err != nil {
+		return err
+	}
+	apikey, err := h.lookupAPIkey(userID)
+	if err != nil {
+		return err
+	}
+
+	payload, _ := json.Marshal(struct {
+		APIkey  string `json:"api_key"`
+		Comment string `json:"comment"`
+	}{
+		APIkey:  apikey,
+		Comment: comment,
+	})
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer res.Body.Close()
+	body, err := ioutil.ReadAll(res.Body)
+
+	log.Infof("%v\n%s", res, string(body))
+
+	return
+}
+
+func (h handler) validReply(toAddress string) (caseID string) {
 	log.Infof("Checking reply address is valid: %s", toAddress)
 
 	e, err := mail.ParseAddress(toAddress)
 	if err != nil {
-		return false
+		return ""
 	}
 
 	if !strings.HasPrefix(e.Address, "reply+") {
-		return false
+		return ""
 	}
 
 	parts := strings.Split(e.Address, "-")
 	// fmt.Println("parts", parts, len(parts))
 
 	if len(parts) < 2 {
-		return false
+		return ""
 	}
 
 	// fmt.Println("parts", parts)
 	replyParts := strings.Split(parts[0], "+")
 
 	if len(replyParts) != 2 {
-		return false
+		return ""
 	}
 
 	endParts := strings.Split(parts[1], "@")
 
 	if len(endParts) != 2 {
-		return false
+		return ""
 	}
 
 	accessToken := h.Env.GetSecret("API_ACCESS_TOKEN")
 	log.Infof("API_ACCESS_TOKEN", accessToken)
-	return checkMAC(replyParts[1], endParts[0], accessToken)
+	if checkMAC(replyParts[1], endParts[0], accessToken) {
+		return replyParts[1]
+	}
+	return ""
 
 }
 
