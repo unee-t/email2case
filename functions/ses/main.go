@@ -3,10 +3,15 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/mail"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/alecthomas/template"
@@ -35,15 +40,7 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 
 	cfg, err := external.LoadDefaultAWSConfig()
 	if err != nil {
-		return
-	}
-
-	stssvc := sts.New(cfg)
-	input := &sts.GetCallerIdentityInput{}
-
-	req := stssvc.GetCallerIdentityRequest(input)
-	result, err := req.Send()
-	if err != nil {
+		log.WithError(err).Fatal("unable to AWS configuration")
 		return
 	}
 
@@ -58,6 +55,19 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 		log.WithError(err).Fatal("could not inbox")
 	}
 
+	parts["validReply"] = fmt.Sprintf("%t", h.validReply(email.Mail.Destination[0]))
+
+	stssvc := sts.New(cfg)
+	input := &sts.GetCallerIdentityInput{}
+
+	req := stssvc.GetCallerIdentityRequest(input)
+	result, err := req.Send()
+	if err != nil {
+		log.WithError(err).Fatal("unable to get STS")
+		return
+	}
+
+	log.Infof("Parts: %+v", parts)
 	snssvc := sns.New(cfg)
 	snsreq := snssvc.PublishRequest(&sns.PublishInput{
 		Message:  aws.String(fmt.Sprintf("%s", summarise(email, parts))),
@@ -126,7 +136,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 		Key:    aws.String(rawMessage),
 	}
 
-	fmt.Println(input)
+	//fmt.Println(input)
 
 	req := svc.GetObjectRequest(input)
 	original, err := req.Send()
@@ -134,7 +144,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 		log.WithError(err).Fatal("could not fetch")
 		return
 	}
-	fmt.Println(original.Body)
+	// fmt.Println(original.Body)
 
 	envelope, err := enmime.ReadEnvelope(original.Body)
 
@@ -225,4 +235,52 @@ MessageID: {{.Mail.MessageID}}
 	}
 
 	return output.String()
+}
+
+func (h handler) validReply(toAddress string) bool {
+	log.Infof("Checking reply address is valid: %s", toAddress)
+
+	e, err := mail.ParseAddress(toAddress)
+	if err != nil {
+		return false
+	}
+
+	if !strings.HasPrefix(e.Address, "reply+") {
+		return false
+	}
+
+	parts := strings.Split(e.Address, "-")
+	// fmt.Println("parts", parts, len(parts))
+
+	if len(parts) < 2 {
+		return false
+	}
+
+	// fmt.Println("parts", parts)
+	replyParts := strings.Split(parts[0], "+")
+
+	if len(replyParts) != 2 {
+		return false
+	}
+
+	endParts := strings.Split(parts[1], "@")
+
+	if len(endParts) != 2 {
+		return false
+	}
+
+	accessToken := h.Env.GetSecret("API_ACCESS_TOKEN")
+	log.Infof("API_ACCESS_TOKEN", accessToken)
+	return checkMAC(replyParts[1], endParts[0], accessToken)
+
+}
+
+func checkMAC(message, messageMAC, key string) bool {
+	// fmt.Println(message, messageMAC, key)
+	mac := hmac.New(sha256.New, []byte(key))
+	mac.Write([]byte(message))
+	expectedMAC := mac.Sum(nil)
+
+	computedMAC, _ := hex.DecodeString(messageMAC)
+	return hmac.Equal(computedMAC, expectedMAC)
 }
