@@ -34,13 +34,46 @@ func Test_handler_lookupIDwithEmail(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotUserID, err := h.lookupIDwithEmail(tt.args.email)
+			gotUserID, err := h.lookupID(tt.args.email)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("handler.lookupIDwithEmail() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if gotUserID != tt.wantUserID {
 				t.Errorf("handler.lookupIDwithEmail() = %v, want %v", gotUserID, tt.wantUserID)
+			}
+		})
+	}
+}
+
+func Test_handler_lookupAPIkey(t *testing.T) {
+	type args struct {
+		UserID int
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantAPIkey string
+		wantErr    bool
+	}{
+		{
+			name: "hendry",
+			args: args{
+				UserID: 86,
+			},
+			wantAPIkey: "onm6xtyyytjxW438",
+			wantErr:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotAPIkey, err := h.lookupAPIkey(tt.args.UserID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handler.lookupAPIkey() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotAPIkey != tt.wantAPIkey {
+				t.Errorf("handler.lookupAPIkey() = %v, want %v", gotAPIkey, tt.wantAPIkey)
 			}
 		})
 	}
