@@ -38,12 +38,6 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 	}
 	log.Infof("%+v", email)
 
-	cfg, err := external.LoadDefaultAWSConfig()
-	if err != nil {
-		log.WithError(err).Fatal("unable to AWS configuration")
-		return
-	}
-
 	h, err := New()
 	if err != nil {
 		log.WithError(err).Fatal("error setting configuration")
@@ -57,7 +51,7 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 
 	parts["validReply"] = fmt.Sprintf("%t", h.validReply(email.Mail.Destination[0]))
 
-	stssvc := sts.New(cfg)
+	stssvc := sts.New(h.Env.Cfg)
 	input := &sts.GetCallerIdentityInput{}
 
 	req := stssvc.GetCallerIdentityRequest(input)
@@ -68,7 +62,7 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 	}
 
 	log.Infof("Parts: %+v", parts)
-	snssvc := sns.New(cfg)
+	snssvc := sns.New(h.Env.Cfg)
 	snsreq := snssvc.PublishRequest(&sns.PublishInput{
 		Message:  aws.String(fmt.Sprintf("%s", summarise(email, parts))),
 		TopicArn: aws.String(fmt.Sprintf("arn:aws:sns:us-west-2:%s:incomingreply", aws.StringValue(result.Account))),
