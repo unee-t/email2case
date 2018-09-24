@@ -53,13 +53,22 @@ func Test_handler_comment(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "Comment from Go",
+			name: "Valid",
 			args: args{
 				from:    "hendry@iki.fi",
 				bugID:   "61825",
-				comment: "From go test " + hostname,
+				comment: "Valid go test " + hostname,
 			},
 			wantErr: false,
+		},
+		{
+			name: "Invalid",
+			args: args{
+				from:    "hendry+invalid@iki.fi",
+				bugID:   "61825",
+				comment: "Invalid go test " + hostname,
+			},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {

@@ -31,13 +31,20 @@ import (
 )
 
 func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
+
+	j, err := json.Marshal(payload)
+	if err != nil {
+		log.WithError(err).Fatal("Unable to Marshal")
+	}
+
+	log.Infof("JSON payload %s", string(j))
+
 	var email events.SimpleEmailService
+
 	err = json.Unmarshal([]byte(payload.Records[0].SNS.Message), &email)
 	if err != nil {
 		log.WithError(err).Fatal("bad JSON")
-		return
 	}
-	log.Infof("%+v", email)
 
 	h, err := New()
 	if err != nil {
@@ -85,12 +92,11 @@ func New() (h handler, err error) {
 	cfg, err := external.LoadDefaultAWSConfig(external.WithSharedConfigProfile("uneet-dev"))
 	if err != nil {
 		log.WithError(err).Fatal("setting up credentials")
-		return
 	}
 	cfg.Region = endpoints.ApSoutheast1RegionID
 	e, err := env.New(cfg)
 	if err != nil {
-		log.WithError(err).Warn("error getting unee-t env")
+		log.WithError(err).Fatal("error getting unee-t env")
 	}
 
 	var mysqlhost string
@@ -135,7 +141,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	original, err := req.Send()
 	if err != nil {
 		log.WithError(err).Fatal("could not fetch")
-		return
 	}
 	// fmt.Println(original.Body)
 
@@ -151,14 +156,13 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	_, err = s3aclreq.Send()
 	if err != nil {
 		log.WithError(err).Fatal("making rawMessage readable")
-		return
 	}
 
 	textPartKey := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/text"
 
 	err = h.comment(email.Mail.CommonHeaders.From[0], parts["validReply"], envelope.Text)
 	if err != nil {
-		log.WithError(err).Warn("unable to comment")
+		log.WithError(err).Fatal("unable to comment")
 	}
 
 	putparams := &s3.PutObjectInput{
@@ -173,7 +177,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	_, err = s3req.Send()
 	if err != nil {
 		log.WithError(err).Fatal("putting text part")
-		return
 	}
 
 	htmlPart := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/html"
@@ -190,7 +193,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	_, err = s3req.Send()
 	if err != nil {
 		log.WithError(err).Fatal("putting html part")
-		return
 	}
 
 	log.Infof("%+v", envelope)
@@ -253,6 +255,7 @@ func (h handler) comment(from, bugID, comment string) (err error) {
 	if err != nil {
 		return err
 	}
+
 	apikey, err := h.lookupAPIkey(userID)
 	if err != nil {
 		return err
@@ -319,7 +322,7 @@ func (h handler) validReply(toAddress string) (caseID string) {
 	}
 
 	accessToken := h.Env.GetSecret("API_ACCESS_TOKEN")
-	log.Infof("API_ACCESS_TOKEN", accessToken)
+	log.Infof("%s", accessToken)
 	if checkMAC(replyParts[1], endParts[0], accessToken) {
 		return replyParts[1]
 	}
