@@ -79,3 +79,58 @@ func Test_handler_comment(t *testing.T) {
 		})
 	}
 }
+
+func Test_cleanReply(t *testing.T) {
+
+	replyText, err := ioutil.ReadFile("reply.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type args struct {
+		comment string
+	}
+	tests := []struct {
+		name               string
+		args               args
+		wantCleanedComment string
+		wantErr            bool
+	}{
+		{
+			name: "empty",
+			args: args{
+				comment: fmt.Sprintf(" \n \n"),
+			},
+			wantCleanedComment: "",
+			wantErr:            true,
+		},
+		{
+			name: "spaced",
+			args: args{
+				comment: " Howdy! ",
+			},
+			wantCleanedComment: "Howdy!",
+			wantErr:            false,
+		},
+		{
+			name: "Remove quote",
+			args: args{
+				comment: string(replyText),
+			},
+			wantCleanedComment: "Replied to...",
+			wantErr:            false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotCleanedComment, err := cleanReply(tt.args.comment)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("cleanReply() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotCleanedComment != tt.wantCleanedComment {
+				t.Errorf("cleanReply() = %v, want %v", gotCleanedComment, tt.wantCleanedComment)
+			}
+		})
+	}
+}

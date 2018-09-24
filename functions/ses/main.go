@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/mail"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 	j, err := json.Marshal(payload)
 	if err != nil {
 		log.WithError(err).Fatal("Unable to Marshal")
+		return
 	}
 
 	log.Infof("JSON payload %s", string(j))
@@ -44,17 +46,20 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 	err = json.Unmarshal([]byte(payload.Records[0].SNS.Message), &email)
 	if err != nil {
 		log.WithError(err).Fatal("bad JSON")
+		return
 	}
 
 	h, err := New()
 	if err != nil {
 		log.WithError(err).Fatal("error setting configuration")
+		return
 	}
 	defer h.db.Close()
 
 	parts, err := h.inbox(email)
 	if err != nil {
 		log.WithError(err).Fatal("could not inbox")
+		return
 	}
 
 	log.Infof("Parts: %+v, TopicArn: %s", parts, h.Env.SNS("incomingreply", "us-west-2"))
@@ -92,11 +97,13 @@ func New() (h handler, err error) {
 	cfg, err := external.LoadDefaultAWSConfig(external.WithSharedConfigProfile("uneet-dev"))
 	if err != nil {
 		log.WithError(err).Fatal("setting up credentials")
+		return
 	}
 	cfg.Region = endpoints.ApSoutheast1RegionID
 	e, err := env.New(cfg)
 	if err != nil {
 		log.WithError(err).Fatal("error getting unee-t env")
+		return
 	}
 
 	var mysqlhost string
@@ -116,6 +123,7 @@ func New() (h handler, err error) {
 		mysqlhost))
 	if err != nil {
 		log.WithError(err).Fatal("error opening database")
+		return
 	}
 
 	return
@@ -141,6 +149,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	original, err := req.Send()
 	if err != nil {
 		log.WithError(err).Fatal("could not fetch")
+		return
 	}
 	// fmt.Println(original.Body)
 
@@ -156,6 +165,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	_, err = s3aclreq.Send()
 	if err != nil {
 		log.WithError(err).Fatal("making rawMessage readable")
+		return
 	}
 
 	textPartKey := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/text"
@@ -177,6 +187,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	_, err = s3req.Send()
 	if err != nil {
 		log.WithError(err).Fatal("putting text part")
+		return
 	}
 
 	htmlPart := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/html"
@@ -193,6 +204,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	_, err = s3req.Send()
 	if err != nil {
 		log.WithError(err).Fatal("putting html part")
+		return
 	}
 
 	log.Infof("%+v", envelope)
@@ -237,8 +249,26 @@ MessageID: {{.Mail.MessageID}}
 	return output.String()
 }
 
+func cleanReply(comment string) (cleanedComment string, err error) {
+
+	reg := regexp.MustCompile(`On .* wrote:`)
+	parts := reg.Split(comment, 2)
+
+	cleanedComment = strings.TrimSpace(parts[0])
+	if cleanedComment == "" {
+		return cleanedComment, fmt.Errorf("Empty reply")
+	}
+
+	return
+}
+
 func (h handler) comment(from, bugID, comment string) (err error) {
 	log.Infof("From: %s, BugID: %s, Comment: %s", from, bugID, comment)
+
+	comment, err = cleanReply(comment)
+	if err != nil {
+		return err
+	}
 
 	if bugID == "" {
 		return fmt.Errorf("Not a valid reply address")
