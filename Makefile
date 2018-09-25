@@ -1,8 +1,10 @@
-deploy:
-	apex deploy -r us-west-2
+REGION:=us-west-2
 
-logs:
-	apex logs ses -r us-west-2
+dev:
+	apex deploy -r $(REGION) --env dev
+
+devlogs:
+	apex logs ses -r $(REGION) --env dev
 
 test:
-	apex -r us-west-2 invoke ses < functions/ses/sns.json
+	apex --env dev -r $(REGION) invoke ses < functions/ses/sns.json

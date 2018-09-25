@@ -7,7 +7,10 @@ function genreply (bugID, secret) {
     .update(bugID)
     .digest('hex')
 
-  return `reply+${bugID}-${hash}@dev.unee-t.com`
+  if (process.env.STAGE) {
+    return `reply+${bugID}-${hash}@${process.env.STAGE}.unee-t.com`
+  }
+  return `reply+${bugID}-${hash}@unee-t.com`
 }
 
 console.log(genreply('61825', secret))
