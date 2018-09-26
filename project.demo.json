@@ -1,0 +1,10 @@
+{
+  "name": "email2case",
+  "description": "Email API to Unee-T case",
+  "profile": "uneet-demo",
+  "memory": 128,
+  "timeout": 20,
+  "region": "us-west-2",
+  "role": "arn:aws:iam::915001051872:role/email2case_lambda_function",
+  "environment": {}
+}

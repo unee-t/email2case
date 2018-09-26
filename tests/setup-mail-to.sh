@@ -5,7 +5,18 @@ do
 
 FROM="prod Unee-T case <test@unee-t.com>"
 
-bugid=62321
+case $STAGE in
+	"dev")
+		bugid=62321
+		;;
+	"demo")
+		bugid=68
+		;;
+	*)
+		echo Unknown $STAGE
+		exit
+		;;
+esac
 
 CASE=https://case.unee-t.com/case/$bugid
 

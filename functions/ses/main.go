@@ -139,7 +139,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	rawMessage := fmt.Sprintf("incoming/%s", email.Mail.MessageID)
 
 	input := &s3.GetObjectInput{
-		Bucket: aws.String("dev-email-unee-t"), // Goto env
+		Bucket: aws.String(h.Env.Bucket("email")), // Goto env
 		Key:    aws.String(rawMessage),
 	}
 
@@ -156,7 +156,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	envelope, err := enmime.ReadEnvelope(original.Body)
 
 	aclputparams := &s3.PutObjectAclInput{
-		Bucket: aws.String("dev-email-unee-t"),
+		Bucket: aws.String(h.Env.Bucket("email")),
 		Key:    aws.String(rawMessage),
 		ACL:    s3.ObjectCannedACLPublicRead,
 	}
@@ -176,7 +176,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	}
 
 	putparams := &s3.PutObjectInput{
-		Bucket:      aws.String("dev-email-unee-t"),
+		Bucket:      aws.String(h.Env.Bucket("email")),
 		Body:        bytes.NewReader([]byte(envelope.Text)),
 		Key:         aws.String(textPartKey),
 		ContentType: aws.String("text/plain; charset=UTF-8"),
@@ -193,7 +193,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	htmlPart := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/html"
 
 	putparams = &s3.PutObjectInput{
-		Bucket:      aws.String("dev-email-unee-t"),
+		Bucket:      aws.String(h.Env.Bucket("email")),
 		Body:        bytes.NewReader([]byte(envelope.HTML)),
 		Key:         aws.String(htmlPart),
 		ContentType: aws.String("text/html; charset=UTF-8"),
@@ -209,9 +209,12 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 
 	log.Infof("%+v", envelope)
 
-	parts["orig"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/incoming/%s", email.Mail.MessageID)
-	parts["text"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/%s", textPartKey)
-	parts["html"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/dev-email-unee-t/%s", htmlPart)
+	parts["orig"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/%s/incoming/%s",
+		h.Env.Bucket("email"), email.Mail.MessageID)
+	parts["text"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/%s/%s",
+		h.Env.Bucket("email"), textPartKey)
+	parts["html"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/%s/%s",
+		h.Env.Bucket("email"), htmlPart)
 	parts["bugURL"] = fmt.Sprintf("https://%s/case/%s", h.Env.Udomain("case"), parts["validReply"])
 
 	return

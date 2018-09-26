@@ -1,5 +1,11 @@
 REGION:=us-west-2
 
+demo:
+	apex deploy -r $(REGION) --env demo
+
+demologs:
+	apex logs ses -r $(REGION) --env demo
+
 dev:
 	apex deploy -r $(REGION) --env dev
 

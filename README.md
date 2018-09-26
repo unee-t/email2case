@@ -1,5 +1,4 @@
-To get summaries of emails sent to reply@dev.unee-t.com, subscribe to
-arn:aws:sns:us-west-2:\*:incomingreply SNS.
+To get summaries of emails sent to reply@\*.unee-t.com * test@\*.unee-t.com, subscribe to arn:aws:sns:us-west-2:\*:incomingreply SNS.
 
 # AWS SES receving setup in dev account
 
@@ -7,12 +6,4 @@ arn:aws:sns:us-west-2:\*:incomingreply SNS.
 
 # Testing
 
-## dev
-
-https://case.dev.unee-t.com/case/62003
-
-Whitelisted from: hendry@iki.fi
-
-## demo
-
-## prod
+Please refer to `test/setup-mail-to.sh` which generates JS files to run for each account.
