@@ -28,6 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jhillyerd/enmime"
+	"github.com/pkg/errors"
 	"github.com/unee-t/env"
 )
 
@@ -35,8 +36,7 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 
 	j, err := json.Marshal(payload)
 	if err != nil {
-		log.WithError(err).Fatal("Unable to Marshal")
-		return
+		return errors.Wrap(err, "unable to marshal")
 	}
 
 	log.Infof("JSON payload %s", string(j))
@@ -45,29 +45,25 @@ func LambdaHandler(ctx context.Context, payload events.SNSEvent) (err error) {
 
 	err = json.Unmarshal([]byte(payload.Records[0].SNS.Message), &email)
 	if err != nil {
-		log.WithError(err).Fatal("bad JSON")
-		return
+		return errors.Wrap(err, "bad JSON")
 	}
 
 	h, err := New()
 	if err != nil {
-		log.WithError(err).Fatal("error setting configuration")
-		return
+		return errors.Wrap(err, "error setting configuration")
 	}
 	defer h.db.Close()
 
 	parts, err := h.inbox(email)
 	if err != nil {
-		log.WithError(err).Fatal("could not inbox")
-		return
+		return errors.Wrap(err, "could not inbox")
 	}
 
 	log.Infof("Parts: %+v, TopicArn: %s", parts, h.Env.SNS("incomingreply", "us-west-2"))
 
 	cfg, err := external.LoadDefaultAWSConfig(external.WithSharedConfigProfile("uneet-dev"))
 	if err != nil {
-		log.WithError(err).Fatal("setting up credentials")
-		return
+		return errors.Wrap(err, "setting up credentials")
 	}
 	cfg.Region = endpoints.UsWest2RegionID
 
@@ -96,13 +92,11 @@ func New() (h handler, err error) {
 
 	cfg, err := external.LoadDefaultAWSConfig(external.WithSharedConfigProfile("uneet-dev"))
 	if err != nil {
-		log.WithError(err).Fatal("setting up credentials")
 		return
 	}
 	cfg.Region = endpoints.ApSoutheast1RegionID
 	e, err := env.New(cfg)
 	if err != nil {
-		log.WithError(err).Fatal("error getting unee-t env")
 		return
 	}
 
@@ -122,7 +116,6 @@ func New() (h handler, err error) {
 		e.GetSecret("MYSQL_PASSWORD"),
 		mysqlhost))
 	if err != nil {
-		log.WithError(err).Fatal("error opening database")
 		return
 	}
 
@@ -148,7 +141,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	req := svc.GetObjectRequest(input)
 	original, err := req.Send()
 	if err != nil {
-		log.WithError(err).Fatal("could not fetch")
 		return
 	}
 	// fmt.Println(original.Body)
@@ -164,7 +156,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	s3aclreq := svc.PutObjectAclRequest(aclputparams)
 	_, err = s3aclreq.Send()
 	if err != nil {
-		log.WithError(err).Fatal("making rawMessage readable")
 		return
 	}
 
@@ -172,7 +163,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 
 	err = h.comment(email.Mail.CommonHeaders.From[0], parts["validReply"], envelope.Text)
 	if err != nil {
-		log.WithError(err).Fatal("unable to comment")
+		return
 	}
 
 	putparams := &s3.PutObjectInput{
@@ -186,7 +177,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	s3req := svc.PutObjectRequest(putparams)
 	_, err = s3req.Send()
 	if err != nil {
-		log.WithError(err).Fatal("putting text part")
 		return
 	}
 
@@ -203,7 +193,6 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 	s3req = svc.PutObjectRequest(putparams)
 	_, err = s3req.Send()
 	if err != nil {
-		log.WithError(err).Fatal("putting html part")
 		return
 	}
 
