@@ -14,6 +14,7 @@ import (
 	"net/mail"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,7 +126,11 @@ func New() (h handler, err error) {
 
 func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string, err error) {
 	parts = make(map[string]string)
-	parts["validReply"] = h.validReply(email.Mail.Destination[0])
+	bugid, userid, err := h.validReply(email.Mail.Destination[0])
+
+	if err != nil {
+		return parts, err
+	}
 
 	svc := s3.New(h.Env.Cfg)
 
@@ -161,7 +166,7 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 
 	textPartKey := time.Now().Format("2006-01-02") + "/" + email.Mail.MessageID + "/text"
 
-	err = h.comment(email.Mail.CommonHeaders.From[0], parts["validReply"], envelope.Text)
+	err = h.comment(userid, bugid, envelope.Text)
 	if err != nil {
 		return
 	}
@@ -204,7 +209,9 @@ func (h handler) inbox(email events.SimpleEmailService) (parts map[string]string
 		h.Env.Bucket("email"), textPartKey)
 	parts["html"] = fmt.Sprintf("https://s3-ap-southeast-1.amazonaws.com/%s/%s",
 		h.Env.Bucket("email"), htmlPart)
-	parts["bugURL"] = fmt.Sprintf("https://%s/case/%s", h.Env.Udomain("case"), parts["validReply"])
+	parts["bugURL"] = fmt.Sprintf("https://%s/case/%d", h.Env.Udomain("case"), bugid)
+	parts["bugid"] = fmt.Sprintf("%d", bugid)
+	parts["userid"] = fmt.Sprintf("%d", userid)
 
 	return
 }
@@ -254,31 +261,21 @@ func cleanReply(comment string) (cleanedComment string, err error) {
 	return
 }
 
-func (h handler) comment(from, bugID, comment string) (err error) {
-	log.Infof("From: %s, BugID: %s, Comment: %s", from, bugID, comment)
+func (h handler) comment(userid, bugid int, comment string) (err error) {
+	log.Infof("userid: %d, BugID: %d, Comment: %s", userid, bugid, comment)
 
 	comment, err = cleanReply(comment)
 	if err != nil {
 		return err
 	}
 
-	if bugID == "" {
-		return fmt.Errorf("Not a valid reply address")
+	if bugid == 0 {
+		return fmt.Errorf("Missing bug number")
 	}
 
-	url := fmt.Sprintf("https://%s/rest/bug/%s/comment", h.Env.Udomain("dashboard"), bugID)
+	url := fmt.Sprintf("https://%s/rest/bug/%d/comment", h.Env.Udomain("dashboard"), bugid)
 
-	e, err := mail.ParseAddress(from)
-	if err != nil {
-		return err
-	}
-
-	userID, err := h.lookupID(e.Address)
-	if err != nil {
-		return err
-	}
-
-	apikey, err := h.lookupAPIkey(userID)
+	apikey, err := h.lookupAPIkey(userid)
 	if err != nil {
 		return err
 	}
@@ -306,54 +303,71 @@ func (h handler) comment(from, bugID, comment string) (err error) {
 	defer res.Body.Close()
 	body, err := ioutil.ReadAll(res.Body)
 
-	log.Infof("%v\n%s", res, string(body))
+	log.Infof("bz response: %v\n%s", res, string(body))
 
 	return
 }
 
-func (h handler) validReply(toAddress string) (caseID string) {
+func (h handler) validReply(toAddress string) (caseID, bzUserID int, err error) {
 	log.Infof("Checking reply address is valid: %s", toAddress)
 
 	e, err := mail.ParseAddress(toAddress)
 	if err != nil {
-		return ""
+		return
 	}
 
 	if !strings.HasPrefix(e.Address, "reply+") {
-		return ""
+		return caseID, bzUserID, fmt.Errorf("missing reply+ prefix")
 	}
 
 	parts := strings.Split(e.Address, "-")
-	// fmt.Println("parts", parts, len(parts))
+	fmt.Println("parts", parts, len(parts))
 
-	if len(parts) < 2 {
-		return ""
+	if len(parts) < 3 {
+		return caseID, bzUserID, fmt.Errorf("not in caseid-userid-signature structure")
 	}
 
-	// fmt.Println("parts", parts)
 	replyParts := strings.Split(parts[0], "+")
 
 	if len(replyParts) != 2 {
-		return ""
+		return caseID, bzUserID, fmt.Errorf("missing caseid")
 	}
 
-	endParts := strings.Split(parts[1], "@")
-
+	endParts := strings.Split(parts[2], "@")
 	if len(endParts) != 2 {
-		return ""
+		return caseID, bzUserID, fmt.Errorf("missing signature")
+	}
+	sig := endParts[0]
+
+	log.Infof("parts: %+v\nreplyParts: %+v\nendParts: %+v", parts, replyParts, endParts)
+
+	caseID, err = strconv.Atoi(replyParts[1])
+	bzUserID, err = strconv.Atoi(parts[1])
+	if err != nil {
+		return
 	}
 
 	accessToken := h.Env.GetSecret("API_ACCESS_TOKEN")
-	log.Infof("%s", accessToken)
-	if checkMAC(replyParts[1], endParts[0], accessToken) {
-		return replyParts[1]
+
+	msg := fmt.Sprintf("%d%d", caseID, bzUserID)
+
+	log.WithFields(log.Fields{
+		"caseID":      caseID,
+		"bzUserID":    bzUserID,
+		"msg":         msg,
+		"sig":         sig,
+		"accessToken": accessToken,
+	}).Info("checking mac")
+
+	if !checkMAC(msg, sig, accessToken) {
+		return caseID, bzUserID, fmt.Errorf("signature failed")
 	}
-	return ""
+	return
 
 }
 
 func checkMAC(message, messageMAC, key string) bool {
-	// fmt.Println(message, messageMAC, key)
+	fmt.Println(message, messageMAC, key)
 	mac := hmac.New(sha256.New, []byte(key))
 	mac.Write([]byte(message))
 	expectedMAC := mac.Sum(nil)

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"testing"
 
 	"github.com/apex/log"
@@ -38,46 +37,6 @@ func TestIntegration(t *testing.T) {
 
 	fmt.Println(summarise(email, parts))
 
-}
-
-func Test_handler_comment(t *testing.T) {
-	hostname, _ := os.Hostname()
-	type args struct {
-		from    string
-		bugID   string
-		comment string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		wantErr bool
-	}{
-		{
-			name: "Valid",
-			args: args{
-				from:    "hendry@iki.fi",
-				bugID:   "61825",
-				comment: "Valid go test " + hostname,
-			},
-			wantErr: false,
-		},
-		{
-			name: "Invalid",
-			args: args{
-				from:    "hendry+invalid@iki.fi",
-				bugID:   "61825",
-				comment: "Invalid go test " + hostname,
-			},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := h.comment(tt.args.from, tt.args.bugID, tt.args.comment); (err != nil) != tt.wantErr {
-				t.Errorf("handler.comment() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
 }
 
 func Test_cleanReply(t *testing.T) {
@@ -130,6 +89,43 @@ func Test_cleanReply(t *testing.T) {
 			}
 			if gotCleanedComment != tt.wantCleanedComment {
 				t.Errorf("cleanReply() = %v, want %v", gotCleanedComment, tt.wantCleanedComment)
+			}
+		})
+	}
+}
+
+func Test_checkMAC(t *testing.T) {
+
+	h, err := New()
+	if err != nil {
+		log.WithError(err).Fatal("error setting configuration")
+	}
+	defer h.db.Close()
+
+	type args struct {
+		message    string
+		messageMAC string
+		key        string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "dev",
+			args: args{
+				message:    "61825107",
+				messageMAC: "c7a1609c4a839b7e1eae86a353ffd975e96a11e5f0f9e7bb52f4cd3010d9eb35",
+				key:        "O6I9svDTizOfLfdVA5ri",
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := checkMAC(tt.args.message, tt.args.messageMAC, tt.args.key); got != tt.want {
+				t.Errorf("checkMAC() = %v, want %v", got, tt.want)
 			}
 		})
 	}

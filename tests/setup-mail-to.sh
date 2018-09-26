@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for STAGE in dev demo prod
+for STAGE in dev
 do
 
 FROM="prod Unee-T case <test@unee-t.com>"
@@ -8,6 +8,7 @@ FROM="prod Unee-T case <test@unee-t.com>"
 case $STAGE in
 	"dev")
 		bugid=62321
+		userid=745
 		;;
 	"demo")
 		bugid=68
@@ -30,10 +31,10 @@ MAIL_URL=$(aws --profile uneet-${STAGE} ssm get-parameters --names MAIL_URL --wi
 SECRET=$(aws --profile uneet-${STAGE} ssm get-parameters --names API_ACCESS_TOKEN --with-decryption --query Parameters[0].Value --output text)
 
 
-REPLY=reply+$bugid-$(echo -n $bugid | hmac256 $SECRET)@$STAGE.unee-t.com
+REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@$STAGE.unee-t.com
 if test $STAGE == "prod"
 then
-	REPLY=reply+$bugid-$(echo -n $bugid | hmac256 $SECRET)@unee-t.com
+	REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@unee-t.com
 fi
 
 DATE=$(date)
@@ -46,7 +47,7 @@ var transporter = nodemailer.createTransport('${MAIL_URL}')
 
 // setup e-mail data with unicode symbols
 var mailOptions = {
-	from: '${FROM}', // sender address must be whitelisted for this to work
+	from: '${FROM}',
 	to: '${REPLY}',
 	subject: 'Testing ${DATE}', // Subject line
 	text: 'Text message ${DATE}', // plaintext body
