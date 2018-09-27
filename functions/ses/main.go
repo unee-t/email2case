@@ -112,13 +112,15 @@ func New() (h handler, err error) {
 
 	h = handler{Env: e}
 
-	h.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:3306)/bugzilla?multiStatements=true&sql_mode=TRADITIONAL",
+	h.db, err = sql.Open("mysql", fmt.Sprintf("%s:%s@tcp(%s:3306)/bugzilla?timeout=10s&multiStatements=true&sql_mode=TRADITIONAL",
 		e.GetSecret("MYSQL_USER"),
 		e.GetSecret("MYSQL_PASSWORD"),
 		mysqlhost))
 	if err != nil {
 		return
 	}
+
+	err = h.db.Ping()
 
 	return
 
@@ -362,6 +364,7 @@ func (h handler) validReply(toAddress string) (caseID, bzUserID int, err error) 
 	if !checkMAC(msg, sig, accessToken) {
 		return caseID, bzUserID, fmt.Errorf("signature failed")
 	}
+	log.Info("signature GOOD")
 	return
 
 }

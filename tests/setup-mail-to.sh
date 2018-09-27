@@ -1,10 +1,9 @@
 #!/bin/bash
-
-for STAGE in dev
+ 
+for STAGE in dev prod demo
 do
 
-FROM="prod Unee-T case <test@unee-t.com>"
-
+FROM="prod Unee-T case <test@case.unee-t.com>"
 case $STAGE in
 	"dev")
 		bugid=62321
@@ -12,6 +11,11 @@ case $STAGE in
 		;;
 	"demo")
 		bugid=68
+		userid=329
+		;;
+	"prod")
+		bugid=68874
+		userid=407
 		;;
 	*)
 		echo Unknown $STAGE
@@ -34,7 +38,7 @@ SECRET=$(aws --profile uneet-${STAGE} ssm get-parameters --names API_ACCESS_TOKE
 REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@$STAGE.unee-t.com
 if test $STAGE == "prod"
 then
-	REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@unee-t.com
+	REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@case.unee-t.com
 fi
 
 DATE=$(date)
@@ -51,7 +55,7 @@ var mailOptions = {
 	to: '${REPLY}',
 	subject: 'Testing ${DATE}', // Subject line
 	text: 'Text message ${DATE}', // plaintext body
-	html: '<b>Html message ${DATE}</b>' // html body
+	html: '<b>HTML message ${DATE}</b>' // html body
 };
 
 // send mail with defined transport object
