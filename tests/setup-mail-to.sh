@@ -35,7 +35,7 @@ MAIL_URL=$(aws --profile uneet-${STAGE} ssm get-parameters --names MAIL_URL --wi
 SECRET=$(aws --profile uneet-${STAGE} ssm get-parameters --names API_ACCESS_TOKEN --with-decryption --query Parameters[0].Value --output text)
 
 
-REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@$STAGE.unee-t.com
+REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@case.$STAGE.unee-t.com
 if test $STAGE == "prod"
 then
 	REPLY=reply+$bugid-$userid-$(echo -n "${bugid}${userid}" | hmac256 $SECRET)@case.unee-t.com

@@ -4,7 +4,7 @@ demo:
 	apex deploy -r $(REGION) --env demo
 
 demologs:
-	apex logs ses -r $(REGION) --env demo
+	apex logs ses -r $(REGION) --env demo -f
 
 prod:
 	apex deploy -r ap-southeast-1 --env prod
