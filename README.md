@@ -7,3 +7,7 @@ To get summaries of emails sent to reply@\*.unee-t.com * test@\*.unee-t.com, sub
 # Testing
 
 Please refer to `test/setup-mail-to.sh` which generates JS files to run for each account.
+
+# Deploy
+
+	make {dev,demo,prod}

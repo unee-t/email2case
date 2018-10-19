@@ -252,7 +252,7 @@ MessageID: {{.Mail.MessageID}}
 
 func cleanReply(comment string) (cleanedComment string, err error) {
 
-	reg := regexp.MustCompile(`On .* wrote:`)
+	reg := regexp.MustCompile(`.* (wrote|écrit).*:`)
 	parts := reg.Split(comment, 2)
 
 	cleanedComment = strings.TrimSpace(parts[0])

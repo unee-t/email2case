@@ -46,6 +46,11 @@ func Test_cleanReply(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	replyTextFR, err := ioutil.ReadFile("reply-fr.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	type args struct {
 		comment string
 	}
@@ -72,11 +77,19 @@ func Test_cleanReply(t *testing.T) {
 			wantErr:            false,
 		},
 		{
-			name: "Remove quote",
+			name: "Remove quote after wrote",
 			args: args{
 				comment: string(replyText),
 			},
 			wantCleanedComment: "Replied to...",
+			wantErr:            false,
+		},
+		{
+			name: "Remove quote after écrit",
+			args: args{
+				comment: string(replyTextFR),
+			},
+			wantCleanedComment: fmt.Sprintf("hello\nset well received"),
 			wantErr:            false,
 		},
 	}
